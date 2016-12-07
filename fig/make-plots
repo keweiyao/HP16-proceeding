@@ -1,0 +1,1315 @@
+#!/usr/bin/env python3
+
+import matplotlib.pyplot as plt
+import numpy as np
+import argparse
+import colorsys
+import h5py
+import husl
+import glob
+import os
+from itertools import chain
+from scipy import interpolate
+from matplotlib import ticker
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib import patches
+from matplotlib import gridspec
+
+aspect = 1/1.618
+resolution = 72.27
+columnwidth = 246/resolution
+textwidth = 510/resolution
+textiny, texsmall, texnormal = 8.0, 9.25, 10.0
+cm1, cm2 = plt.cm.Blues(.8), plt.cm.Reds(.8)
+cv2, cv3 = plt.cm.Blues(.6), plt.cm.Oranges(.6)
+offblack = '#262626'
+gray = '0.8'
+
+plt.rcdefaults()
+plt.rcParams.update({
+    'font.family': 'serif',
+    'font.serif': ['CMU Serif'],
+    'font.size': texsmall,
+    'legend.fontsize': texsmall,
+    'axes.labelsize': texsmall,
+    'axes.titlesize': texsmall,
+    'xtick.labelsize': textiny,
+    'ytick.labelsize': textiny,
+    'font.weight': 400,
+    'axes.labelweight': 400,
+    'axes.titleweight': 400,
+    'lines.linewidth': .9,
+    'lines.markersize': 3,
+    'lines.markeredgewidth': .1,
+    'patch.linewidth': .9,
+    'axes.linewidth': .5,
+    'xtick.major.width': .5,
+    'ytick.major.width': .5,
+    'xtick.minor.width': .5,
+    'ytick.minor.width': .5,
+    'xtick.major.size': 2,
+    'ytick.major.size': 2,
+    'xtick.minor.size': 1.3,
+    'ytick.minor.size': 1.3,
+    'xtick.major.pad': 1.8,
+    'ytick.major.pad': 1.8,
+    'text.color': 'black',
+    'axes.edgecolor': 'black',
+    'axes.labelcolor': 'black',
+    'xtick.color': 'black',
+    'ytick.color': 'black',
+    'legend.numpoints': 1,
+    'legend.scatterpoints': 1,
+    'legend.frameon': False,
+    'image.interpolation': 'none',
+    'pdf.fonttype': 42,
+})
+
+
+plot_functions = {}
+
+
+def plot(f):
+    def wrapper(*args, **kwargs):
+        print(f.__name__)
+        f(*args, **kwargs)
+        plt.savefig('{}.pdf'.format(f.__name__))
+        plt.close()
+
+    plot_functions[f.__name__] = wrapper
+
+    return wrapper
+
+
+def finish(despine=True, remove_ticks=False, pad=0.1, h_pad=None, w_pad=None,
+           rect=[0, 0, 1, 1]):
+    fig = plt.gcf()
+
+    for ax in fig.axes:
+        if despine:
+            for spine in 'top', 'right':
+                ax.spines[spine].set_visible(False)
+
+        if remove_ticks:
+            for ax_name in 'xaxis', 'yaxis':
+                getattr(ax, ax_name).set_ticks_position('none')
+        else:
+            ax.xaxis.set_ticks_position('bottom')
+            ax.yaxis.set_ticks_position('left')
+
+    fig.tight_layout(pad=pad, h_pad=h_pad, w_pad=w_pad, rect=rect)
+
+
+def set_loc(ax, xy=None, nbins=5, steps=[1, 2, 3, 4, 5, 10],
+            prune=None, minor=0):
+    if xy == 'x':
+        axes = ax.xaxis,
+    elif xy == 'y':
+        axes = ax.yaxis,
+    else:
+        axes = ax.xaxis, ax.yaxis
+
+    for axis in axes:
+        axis.set_major_locator(
+            ticker.MaxNLocator(nbins=nbins, steps=steps, prune=prune)
+        )
+        if minor:
+            axis.set_minor_locator(ticker.AutoMinorLocator(minor))
+
+
+def desaturate(color, fraction=0.5):
+    h, l, s = colorsys.rgb_to_hls(*color[:3])
+    return colorsys.hls_to_rgb(h, l, fraction*s)
+
+
+def recolor(color, f1=0.7, f2=0.7):
+    h, l, s = colorsys.rgb_to_hls(*color[:3])
+    return colorsys.hls_to_rgb(h, f1*l, f2*s)
+
+
+def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
+    new_cmap = LinearSegmentedColormap.from_list(
+        'trunc({n},{a:.2f},{b:.2f})'.format(n=cmap.name, a=minval, b=maxval),
+        cmap(np.linspace(minval, maxval, n)))
+    return new_cmap
+
+
+TRENTO_LABEL = r'T\raisebox{-.5ex}{R}ENTo'
+
+
+def set_trento_label(legend, i):
+    """
+    Mark the `i`th label of a legend as containing the T_RENTo logo.
+
+    """
+    t = legend.get_texts()[i]
+    t.set_usetex(True)
+    t.set_y(-.18*t.get_size())
+    return legend
+
+
+@plot
+def trento3d_example():
+    fig, axes = plt.subplots(nrows=2, ncols=2,
+                             figsize=(columnwidth, .7*columnwidth),
+                             gridspec_kw=dict(height_ratios=[2, 1]))
+
+    systems = 'PbPb.hdf5', 'pPb.hdf5'
+    system_labels = 'Pb+Pb', 'p+Pb'
+    event_indices = 5, 3
+    grid_limits = 10, 10, 10
+    x_labels = '$x$ [fm]', '$\eta_s$'
+
+    cdict = plt.cm.PuBu._segmentdata.copy()
+    cdict['red'][0] = (0, 1, 1)
+    cdict['blue'][0] = (0, 1, 1)
+    cdict['green'][0] = (0, 1, 1)
+    my_cmap = LinearSegmentedColormap('blues2', cdict)
+
+    for i, (system, event, system_label) \
+            in enumerate(zip(systems, event_indices, system_labels)):
+        for j, x_label in enumerate(x_labels):
+            ax = axes[i, j]
+            with h5py.File('data/trento-events/' + system, 'r') as f:
+                ev = f['event_3d_{}'.format(event)]
+                nx, ny, neta = ev.shape
+                if j == 0:
+                    ev = ev[:, :, neta/2].T
+                else:
+                    ev = ev[nx/2, :, :]
+
+                x_max, y_max, eta_max = grid_limits
+                y = np.linspace(-y_max, y_max, ny)
+
+                if ax.is_last_col():
+                    x = np.linspace(-eta_max, eta_max, neta)
+                    ax.set_xlim(-eta_max, eta_max)
+                    ax.set_xticks(np.linspace(-8, 8, 5))
+                    ax.set_yticklabels([])
+                else:
+                    x = np.linspace(-x_max, x_max, nx)
+                    ax.set_xlim(-x_max, x_max)
+                    ax.set_xticks(np.linspace(-8, 8, 5))
+
+                if ax.is_last_row():
+                    ax.set_ylim(-5, 5)
+                    ax.set_yticks(np.linspace(-3, 3, 3))
+                    ax.set_title(system_label, x=.83, y=.88,
+                                 ha='center', va='top')
+                else:
+                    ax.set_ylim(-x_max, x_max)
+                    ax.set_yticks(np.linspace(-8, 8, 5))
+                    ax.set_title(system_label, x=.83, y=.94,
+                                 ha='center', va='top')
+                    ax.set_xticklabels([])
+
+                cs = ax.pcolorfast(x, y, ev, cmap=my_cmap)
+                cs.set_clim(0., np.max(ev))
+
+                ax.set_xlabel(x_label if i == 1 else '')
+                ax.set_ylabel('$y$ [fm]' if j == 0 else '')
+                ax.set_aspect('equal', adjustable='datalim')
+
+    finish(h_pad=.6)
+
+
+@plot
+def posterior():
+    f1 = h5py.File("data/chain/pset-1.hdf5", 'r')
+    f2 = h5py.File("data/chain/pset-2.hdf5", 'r')
+    chain_I = f1['pset'].value.T[:]
+    chain_II = f2['pset'].value.T[:]
+
+    # rescale skewness by "*6"
+    f1.close()
+    f2.close()
+    ranges_I = [(10., 13.), (1., 1.4), (-.3, .3), (1., 5.),
+                (.3, .6), (0, 1), (2.5, 4.), (0., 12), (.5, 0.8)]
+    ranges_II = [(10., 13.), (1., 1.4), (-.3, .3), (1., 5.),
+                 (.3, .6), (0, 1), (2.5, 4.), (0., 3.6), (.5, 0.8)]
+    labels = [r"$N_{\mathrm{pPb}}$", r"$N_{\mathrm{PbPb}}$",
+              r"$p$", r"$k$", r"$w$", r"$\mu_0$", r"$\sigma_0$",
+              r"$\gamma_0$", "$J$"]
+    ranges = [(8, 13), (8, 13), (-.3, .3), (1., 5.), (.4, .6),
+              (0, 1), (3., 4.), (0., 12), (.6, .8)]
+    nxy = chain_II.shape[0]
+    assert nxy == chain_I.shape[0]
+
+    for i in range(nxy):
+        chain_I[i] = chain_I[i]*(ranges_I[i][1]-ranges_I[i][0])\
+            + ranges_I[i][0]
+        chain_II[i] = chain_II[i]*(ranges_II[i][1]-ranges_II[i][0])\
+            + ranges_II[i][0]
+
+    chain_I[1] = chain_I[0]/chain_I[1]
+    chain_II[1] = chain_II[0]/chain_II[1]
+    chains = chain_I, chain_II
+    def recolor(rgb):
+        h, s, l = husl.rgb_to_husl(*rgb)
+        return husl.husl_to_rgb(h, .75*s, min(1.02*l, 100))
+
+    cmaps = [
+        plt.cm.Blues,
+        LinearSegmentedColormap.from_list(
+            'Reds_mod',
+            [recolor(rgba[:3]) for rgba in plt.cm.Reds(np.linspace(0, 1, 9))]
+        ),
+    ]
+
+    fig, axes = plt.subplots(
+        nrows=nxy, ncols=nxy,
+        sharex='col', sharey='row',
+        figsize=(textwidth, textwidth)
+    )
+
+    for n, (ax, lim) in enumerate(zip(axes.diagonal(), ranges)):
+        counts, edges = zip(*[
+            np.histogram(c[n], bins=50, range=lim, density=True)
+            for c in chains
+        ])
+
+        assert np.allclose(edges[0], edges[1])
+        edges = edges[0]
+        x = (edges[1:] + edges[:-1]) / 2
+
+        cmax = max(c.max() for c in counts)
+
+        for c, cmap in zip(counts, cmaps):
+            y = .84 * (lim[1] - lim[0]) * c / cmax + lim[0]
+            ax.plot(x, y, lw=0.8, color=cmap(.8))
+            ax.fill_between(
+                x, lim[0], y, color=cmap(.5, alpha=0.2), zorder=-10
+            )
+
+        ticks = [lim[0], (lim[0] + lim[1])/2, lim[1]]
+
+        def fmt_tick(n):
+            s = str(float(n))
+            if abs(n) > 10 and s.endswith('.0'):
+                return s[:-2]
+            return s
+
+        for xy in ['x', 'y']:
+            getattr(ax, 'set_{}lim'.format(xy))(lim)
+            getattr(ax, 'set_{}ticks'.format(xy))(ticks)
+            getattr(ax, 'set_{}ticklabels'.format(xy))(
+                [fmt_tick(i) for i in ticks],
+            )
+
+    for nyx in zip(*np.tril_indices_from(axes, k=-1)):
+        for c, cmap, (ny, nx) in zip(chains, cmaps, [nyx, reversed(nyx)]):
+            H, xedges, yedges = np.histogram2d(
+                c[nx], c[ny], bins=100, range=(ranges[nx], ranges[ny]),
+            )
+            H[H == 0] = None
+            axes[ny][nx].pcolorfast(xedges, yedges, H.T, cmap=cmap)
+
+    for n, label in enumerate(labels):
+        axes[-1][n].set_xlabel(label)
+        axes[n][0].set_ylabel(label)
+
+        axes[0][n].annotate(label, xy=(0.5, 1.02), xycoords='axes fraction',
+                            va='bottom', ha='center', fontsize=texnormal)
+        axes[n][-1].annotate(label, xy=(1.04, 0.5), xycoords='axes fraction',
+                             va='center', ha='left', rotation=-90,
+                             fontsize=texnormal)
+
+        for t, justify in zip(axes[-1][n].xaxis.get_major_ticks(),
+                              ['left', 'center', 'right']):
+            t.label1.set_horizontalalignment(justify)
+        for t, justify in zip(axes[n][0].yaxis.get_major_ticks(),
+                              ['bottom', 'center', 'top']):
+            t.label1.set_verticalalignment(justify)
+
+    finish(pad=1, h_pad=0.5, w_pad=0.5, rect=[0., 0., 0.98, 0.98])
+
+
+def import_data(source, model_number=2):
+    if source == 'PbPb exp':
+        x_PbPb_0to30, y_PbPb_0to30 = \
+            np.hsplit(np.loadtxt('data/exp-data/alice-PbPb-0to30.dat',
+                                 usecols=(0, 1, 2, 3, 4, 6, 7,
+                                          9, 10, 12, 13)), [3])
+        y_PbPb_0to30 = np.hsplit(y_PbPb_0to30, 4)
+        PbPb_0to30 = [
+            np.column_stack((x_PbPb_0to30, y_PbPb_0to30[i]))
+            for i in range(4)
+        ]
+        x_PbPb_30to90, y_PbPb_30to90 = \
+            np.hsplit(np.loadtxt('data/exp-data/alice-PbPb-30to90.dat',
+                                 usecols=(0, 1, 2, 3, 6, 8, 11,
+                                          13, 16, 18, 21, 23,
+                                          26, 28, 31)), [3])
+        y_PbPb_30to90 = np.hsplit(y_PbPb_30to90, 6)
+        PbPb_30to90 = [
+            np.column_stack((x_PbPb_30to90, y_PbPb_30to90[i]))
+            for i in range(6)
+        ]
+        return PbPb_0to30 + PbPb_30to90
+    elif source == 'pPb exp':
+        x_pPb, y_pPb = \
+            np.hsplit(np.loadtxt('data/exp-data/atlas-pPb-all.dat',
+                                 usecols=(0, 1, 2, 3, 6, 8, 11,
+                                          13, 16, 18, 21, 23, 26,
+                                          28, 31, 33, 36, 38, 41)), [3])
+        y_pPb = np.hsplit(y_pPb, 8)
+        return [np.column_stack((x_pPb, y_pPb[i])) for i in range(8)][::-1]
+    elif source == 'PbPb model':
+        fin = h5py.File('data/posterior-observables/priori-post-{}.hdf5'
+                        .format(model_number), 'r')
+        model_PbPb = fin['post'].value[:, 432:832]
+        x = np.array([np.linspace(-4.76, 4.75, 40)]*10)
+
+        y = np.mean(model_PbPb, axis=0).reshape([10, -1])
+        dy = np.std(model_PbPb, axis=0).reshape([10, -1])
+        return [np.column_stack((x[i], y[i], dy[i])) for i in range(10)]
+    elif source == 'pPb model':
+        fin = h5py.File('data/posterior-observables/priori-post-{}.hdf5'
+                        .format(model_number), 'r')
+        model_pPb = fin['post'].value[:, 0:432]
+        x = np.array([np.linspace(-2.65, 2.65, 54)]*8)
+        y = np.mean(model_pPb, axis=0).reshape([8, -1])
+        dy = np.std(model_pPb, axis=0).reshape([8, -1])
+        return [np.column_stack((x[i], y[i], dy[i])) for i in range(8)]
+    else:
+        print('no such model')
+
+
+@plot
+def chg_particle_rapidity():
+
+    fig, axes = plt.subplots(nrows=2, ncols=2, sharex='col',
+                             figsize=(0.58*textwidth, 0.5*textwidth))
+
+    exp_PbPb = import_data('PbPb exp')
+    exp_pPb = import_data('pPb exp')
+    model_labels = 'Relative skew', 'Absolute skew'
+    colors = cm1, cm2
+
+    for m, (model, color, model_label) in enumerate(zip([1, 2], colors,
+                                                        model_labels)):
+        model_PbPb = import_data('PbPb model', model_number=model)
+        model_pPb = import_data('pPb model', model_number=model)
+        systems = [(exp_PbPb, model_PbPb), (exp_pPb, model_pPb)]
+        labels = 'ALICE Pb+Pb, 2.76 TeV', 'ATLAS p+Pb, 5.02 TeV'
+
+        for ax, (exp, model), label in zip(axes[m], systems, labels):
+            for i in range(len(exp)):
+                x, xl, xh, y, sy = exp[i].T
+                dy = np.zeros_like(sy)
+                edges = np.column_stack((xl, xh)).ravel()
+                sys_lo = np.column_stack((y - sy, y - sy)).ravel()
+                sys_hi = np.column_stack((y + sy, y + sy)).ravel()
+                ax.fill_between(edges, sys_lo, sys_hi, color=gray, lw=0,
+                                zorder=1)
+                ax.errorbar(x, y, yerr=dy, fmt='o', capsize=0, mew=0, zorder=2,
+                            c=offblack, label=label if i == 0 else '')
+                if ax.is_first_row():
+                    h, l = ax.get_legend_handles_labels()
+                    ax.set_title(label, va='top')
+                x, y, dy = model[i].T
+                ax.plot(x, y, color=color, zorder=3)
+                ax.fill_between(x, y - 2*dy, y + 2*dy, color=color, alpha=0.3,
+                                zorder=3, lw=0)
+
+            ax.annotate(model_label if ax.is_last_col() else '', xy=(1, 0.5),
+                        xycoords='axes fraction', ha='right', va='center',
+                        rotation=-90)
+            ax.set_xlim((-6, 6) if ax.is_first_col() else (-3.5, 3.5))
+            ax.set_ylim((0, 2200) if ax.is_first_col() else (0, 90))
+            ax.set_xlabel('$\eta$' if ax.is_last_row() else '')
+            ax.set_ylabel(r'$dN_\mathrm{ch}/d\eta$' if ax.is_first_col()
+                          else '')
+            set_loc(ax, xy='x', nbins=4, prune='both', steps=[1, 2, 3, 5])
+            set_loc(ax, xy='y', nbins=5, prune='upper', steps=[2, 5])
+
+        finish(h_pad=0.5, w_pad=1, rect=(0, 0, 1, 1))
+
+
+@plot
+def regulate():
+    """
+    N: half eta grid
+    n: full eta grid
+    L: 2*y_max
+    k: wave vector of rapidity
+    y: rapidity
+    mu: mean
+    sigma: standard deviation
+    K: Jacobian
+    norm: overall normalization
+    Gamma: skewness
+    """
+    N = 100
+    n = np.arange(2*N+1)
+    sigma = 3.
+    L = sigma*10./3.*2
+    k = 2*np.pi*(n-N)/L
+    y = 1.0*(n-N)/(2*N)*L
+    mu = L/2.0
+
+    K = 0.7
+    norm = 50.0
+    normalized_gamma = np.linspace(0., 9.,  4)
+    Gamma_list = [normalized_gamma*sigma**3, normalized_gamma*sigma**3]
+    eta = np.arcsinh(np.sqrt(K)*np.sinh(y))
+
+    colors = plt.cm.PuBu(np.linspace(0.5, 1, 4))
+    titles = 'Unregulated', 'Regulated'
+
+    fig, axes = plt.subplots(ncols=2, sharey=True,
+                             figsize=(columnwidth, aspect*columnwidth))
+
+    for ax, Gamma, title in zip(axes, Gamma_list, titles):
+        for i in range(len(Gamma)):
+            if ax.is_last_col():
+                gamma = Gamma[i] * np.exp(-sigma**2*k**2/2.)
+            else:
+                gamma = Gamma[i] * np.ones_like(k)
+            Fk = np.exp(1j*mu*k - 0.5 * sigma**2 * k**2 +
+                        1.0/6.0*gamma*1j*k**3)/np.sqrt(2*np.pi)*sigma
+            J = K*np.cosh(eta)/np.sqrt(1.0 + (K*np.sinh(eta))**2)
+            corr = np.exp(2*np.pi*1j*N*n/(2*N+1))/np.pi/2.0
+            Fy = np.real(np.multiply(np.fft.fft(Fk), corr))*J
+            dNdeta = norm*Fy/Fy[N]
+            ax.plot(eta, dNdeta, '-', color=colors[i],
+                    label='$\gamma={:.1f}$'.format(normalized_gamma[i]) if
+                    ax.is_last_col() else '')
+
+        if ax.is_first_col():
+            ax.set_ylabel(r'$dN_\mathrm{ch}/d\eta$ (a.u.)')
+        else:
+            ax.legend(loc='upper center', ncol=2, handletextpad=0.3,
+                      columnspacing=1, handlelength=1.2, labelspacing=0.1,
+                      fontsize=textiny)
+        ax.axis([-10, 10, -30, 150])
+        ax.set_xticks([-8, -4, 0, 4, 8])
+        ax.axhline(y=0, lw=.5, color=offblack)
+        ax.set_xlabel(r'$\eta$')
+        ax.set_title(title, va='top')
+
+    finish()
+
+
+def model_error(system):
+
+    model_numbers = 1, 2
+    model_labels = 'Skew normalized', 'Skew unnormalized'
+    colors = cm1, cm2
+
+    if system == 'PbPb':
+        label = 'Pb+Pb 2.76 TeV'
+        ncol = 5
+        titles = ['0–5%', '5–10%', '10–20%', '20–30%', '30–40%',
+                  '40–50%', '50–60%', '60–70%', '70–80%', '80–90%']
+    elif system == 'pPb':
+        label = 'p+Pb 5.02 TeV'
+        ncol = 4
+        titles = ['0–1%', '1–5%', '5–10%', '10–20%',
+                  '20–30%', '30–40%', '40–60%', '60–90%']
+    else:
+        print('no such model')
+
+    fig, axes = plt.subplots(nrows=2, ncols=ncol, sharex=True, sharey=True,
+                             figsize=(textwidth, 1.2*aspect*columnwidth))
+
+    for i, (ax, title) in enumerate(zip(axes.flat, titles)):
+        exp = import_data(system + ' exp')
+        x_exp, xl_exp, xh_exp, y_exp, dy_exp = exp[i].T
+        x_exp[0] += 1e-12
+        x_exp[-1] -= 1e-12
+
+        def edges(x_exp):
+            dx = x_exp[1] - x_exp[0]
+            x_edges = x_exp - dx/2
+            return np.append(x_edges, x_exp[-1] + dx/2)
+
+        one = np.ones_like(x_exp)
+        x_edges = np.column_stack((
+            edges(x_exp)[:-1], edges(x_exp)[1:])).ravel()
+        sys_lo = np.column_stack((
+            one - dy_exp/y_exp, one - dy_exp/y_exp)).ravel()
+        sys_hi = np.column_stack((
+            one + dy_exp/y_exp, one + dy_exp/y_exp)).ravel()
+
+        ax.fill_between(x_edges, sys_lo, sys_hi, lw=0, color=gray, zorder=1)
+
+        for m, mlabel, color in zip(model_numbers, model_labels, colors):
+            model = import_data(system + ' model', model_number=m)
+            x_model, y_model, dy_model = model[i].T
+            y_model = interpolate.interp1d(x_model, y_model, kind='cubic',
+                                           bounds_error=False)
+            dy_model = interpolate.interp1d(x_model, dy_model, kind='cubic',
+                                            bounds_error=False)
+
+            ratio = y_model(x_exp)/y_exp
+            ratio_edges = np.column_stack((ratio, ratio)).ravel()
+            ratio_err = dy_model(x_exp)/y_model(x_exp)
+            err_edges_lo = np.column_stack((
+                ratio - ratio_err, ratio - ratio_err)).ravel()
+            err_edges_hi = np.column_stack((
+                ratio + ratio_err, ratio + ratio_err)).ravel()
+
+            ax.plot(x_edges, ratio_edges, color=color, label=mlabel)
+            ax.fill_between(x_edges, err_edges_lo, err_edges_hi, alpha=.4,
+                            color=color, lw=0)
+            ax.axhline(y=1, lw=.5, color=offblack, dashes=(4, 2))
+            ax.set_xlim(-3, 3)
+            ax.set_ylim(0.85, 1.15)
+            ax.set_xlabel('$\eta$' if ax.is_last_row() else '')
+            ax.set_ylabel('Model/Exp' if ax.is_first_col() else '')
+
+            if system == 'PbPb':
+                pos = [3, 4]
+            elif system == 'pPb':
+                pos = [2, 3]
+            else:
+                print('no such system')
+
+            if i in pos:
+                handles, labels = ax.get_legend_handles_labels()
+                ax.legend(handles[i-pos[0]:i-pos[0]+1],
+                          labels[i-pos[0]:i-pos[0]+1])
+            set_loc(ax)
+            ax.set_title(title, va='bottom', y=0.0, fontsize=texsmall)
+
+    axes[0, 0].annotate(label, xy=(0.075, .95),
+                        xycoords='axes fraction', va='top')
+
+    finish(h_pad=0.5)
+
+
+@plot
+def model_error_PbPb():
+    model_error('PbPb')
+
+
+@plot
+def model_error_pPb():
+    model_error('pPb')
+
+
+def calc_corr(dirname):
+    npart = np.linspace(10, 370, 100)
+    list_a1sqr = []
+
+    for i in range(50):
+        fname = dirname+"PbPb-two-corr-%d.dat" % i
+        if os.path.isfile(fname):
+            ds = np.loadtxt(fname)
+
+            # interpolate between <a1^2> and Npart
+            f = interpolate.interp1d(ds[0], ds[1])
+
+            # calculate at desired points
+            a1sqr = f(npart)
+            list_a1sqr.append(a1sqr)
+
+    return np.mean(list_a1sqr, axis=0), np.std(list_a1sqr, axis=0)
+
+
+@plot
+def fw_correlation_a1():
+    fig, axes = plt.subplots(nrows=2, sharex=True,
+                             figsize=(0.38*textwidth, 0.5*textwidth))
+
+    # load exp data
+    xlo, xhi, y_exp, dy_exp = \
+        np.loadtxt("data/FW_correlation_a1/data-atlas-a1.dat").T
+
+    # load model data
+    centrality_IC = np.loadtxt("data/FW_correlation_a1/centrality_IC.dat")
+    mean1, std1 = calc_corr("data/FW_correlation_a1/IC-calc/corr-1/")
+    mean2, std2 = calc_corr("data/FW_correlation_a1/IC-calc/corr-2/")
+    x, y1, y2 = np.loadtxt("data/FW_correlation_a1/data-a1.dat")
+
+    model1 = (y1, mean1, std1, cm1, r'Hybrid: relative skew',
+              'IC: relative skew')
+    model2 = (y2, mean2, std2, cm2, r'Hybrid: absolute skew',
+              'IC: absolute skew')
+    models = model1, model2
+
+    for ax, (y, mean, std, c, lbl1, lbl2) in zip(axes, models):
+
+        # plot exp data
+        ax.errorbar((xhi + xlo)/2., y_exp, fmt='o', color=offblack, mew=0,
+                    capsize=0)
+        [ax.fill_between([x0, x1], [y0, y0], [y1, y1],
+                         color=gray, lw=0)
+         for (x0, x1, y0, y1) in zip(xlo, xhi, y_exp - dy_exp, y_exp + dy_exp)]
+
+        # plot model data
+        ax.plot(x, y, color=c, label=lbl1)
+        ax.fill_between(centrality_IC, mean - std, mean + std, alpha=0.3,
+                        color=c, lw=0, label=lbl2)
+
+        ax.set_ylabel(r'$\sqrt{\left\langle a_1^2\right\rangle }$')
+        ax.set_xlim(0, 85)
+        ax.set_ylim(1e-2, 3e-1)
+        ax.semilogy()
+
+        handles, labels = ax.get_legend_handles_labels()
+        atlas = '\n'.join(['ATLAS Pb+Pb', '$\sqrt{s_\mathrm{NN}}=2.76$ TeV',
+                           '$p_T > 0.5$ GeV, $|\eta| < 2.4$'])
+        ax.legend(handles, labels, ncol=1, loc='upper left', fontsize=textiny)
+        if ax.is_last_row():
+            ax.annotate(atlas, xy=(1, 0.07), xycoords='axes fraction',
+                        multialignment='left', ha='right', fontsize=textiny)
+            ax.set_xlabel('Centrality %')
+
+    finish()
+
+
+# load data and call calc_rn
+def event_plane_decorrealtion_calc(order, cen):
+    # load model calculations
+    f = [h5py.File(f) for f in glob.glob("data/EP-decorr/r%d/*.hdf5" % order)]
+    arg_list = 'Vs', 'Vd', 'Ms', 'Md', 'Mult'
+    Vs, Vd, Ws, Wd, mult = [
+        np.concatenate([f[i][arg].value for i in range(len(f))], axis=0)
+        for arg in arg_list]
+
+    # sort by multiplicity
+    index = mult.argsort()[::-1]
+    Vs, Vd, Ws, Wd = Vs[index], Vd[index], Ws[index], Wd[index]
+    mult = mult[index]
+    bin_edges = (cen/100.*len(Vs)).astype(int)
+
+    # calculate rn
+    EP = np.array([calc_rn(Vd[clo:chi], Wd[clo:chi], Vs[clo:chi], Ws[clo:chi])
+                   for (clo, chi) in zip(bin_edges[:-1], bin_edges[1:])])
+    epd, depd = EP[:, 0, :], EP[:, 1, :]
+
+    return epd, depd
+
+
+# calculate EP-decorr and estimate the uncertainty
+def calc_rn(X, WX, Y, WY):
+    x = np.average(X, weights=WX, axis=0)
+    y = np.average(Y, weights=WY, axis=0)
+    EPD = x/y
+
+    # estimate uncertainty
+    nx = np.sum(WX)**2/np.sum(WX**2)
+    ny = np.sum(WY)**2/np.sum(WY**2)
+    nxy = np.sum(WX)*np.sum(WY)/np.sum(WX*WY)
+
+    varx = (np.average(X**2, weights=WX**2, axis=0) - x*x)/(nx-1.)
+    vary = (np.average(Y**2, weights=WY**2, axis=0) - y*y)/(ny-1.)
+    covxy = (np.average(X*Y, weights=WX*WY, axis=0) - x*y)/(nxy-1.)
+    EPD_err = (x/y)*np.sqrt(varx/x**2 + vary/y**2 - 2.*covxy/(x*y))
+    EPD, EPD_err = np.insert(EPD, 0, 1), np.insert(EPD_err, 0, 0)
+
+    return EPD, EPD_err
+
+
+@plot
+def evt_pln_decorr():
+    fig, axes = plt.subplots(nrows=3, ncols=2, sharex=True, sharey=True,
+                             figsize=(0.38*textwidth, 0.5*textwidth))
+    # load experimental data
+    exp2 = np.loadtxt("data/EP-decorr/exp_ep2decorr.dat")
+    x_exp2, y_exp2, dy_exp2 = exp2[:, 0], exp2[:, 1::2], exp2[:, 2::2]
+    exp3 = np.loadtxt("data/EP-decorr/exp_ep3decorr.dat")
+    x_exp3, y_exp3, dy_exp3 = exp3[:, 0], exp3[:, 1::2], exp3[:, 2::2]
+
+    # rapidity steps for \eta_a
+    eta_edges = np.linspace(0.0, 3.0, 7)
+    eta = (eta_edges[:-1] + eta_edges[1:])/2
+    eta = np.insert(eta, 0, 0)
+
+    # determine centrality
+    cen = np.array([0, 5, 10, 20, 30, 40, 50])
+    labels = '0–5%', '5–10%', '10–20%', '20–30%', '30–40%', '40–50%'
+
+    epd2, depd2 = event_plane_decorrealtion_calc(2, cen)
+    epd3, depd3 = event_plane_decorrealtion_calc(3, cen)
+
+    # loop over subplot panels
+    for i, (ax, label) in enumerate(zip(axes.flat, labels)):
+
+        # plot experimental data
+        ax.errorbar(x_exp2, y_exp2[:, i], yerr=dy_exp2[:, i], fmt='o', mew=0.5,
+                    mec=offblack, capsize=0, c=cv2, ecolor=offblack,
+                    label='CMS $r_2$', clip_on=False, zorder=2)
+        ax.errorbar(x_exp3, y_exp3[:, i], yerr=dy_exp3[:, i], fmt='D', mew=0.5,
+                    mec=offblack, capsize=0, c=cv3, ecolor=offblack,
+                    label='CMS $r_3$', clip_on=False, zorder=2)
+
+        # plot model calc with error
+        ax.plot(eta, epd2[i], c=cv2, label=r'Hybrid $r_2$', zorder=1)
+        ax.fill_between(eta, epd2[i] - 2*depd2[i], epd2[i] + 2*depd2[i],
+                        color=cv2, alpha=0.3, lw=0, zorder=1)
+        ax.plot(eta, epd3[i], c=cv3, label=r'Hybrid $r_3$', zorder=1)
+        ax.fill_between(eta, epd3[i] - 2*depd3[i], epd3[i] + 2*depd3[i],
+                        color=cv3, alpha=0.3, lw=0, zorder=1)
+
+        if ax.is_last_row():
+            ax.set_xlabel(r"$\eta^a$")
+        if ax.is_first_col():
+            ax.set_ylabel(r"$r_n(\eta^a, \eta^b)$")
+        ax.annotate(label, xy=(0.5, 1), xycoords='axes fraction',
+                    ha='center', va='center', clip_on=False)
+
+    # legend
+    band0 = patches.Patch(color=cv2, alpha=0.3, lw=0, zorder=2)
+    band1 = patches.Patch(color=cv3, alpha=0.3, lw=0, zorder=2)
+    h, l = plt.gca().get_legend_handles_labels()
+    lega = [h[2], h[3]], [l[2], l[3]]
+    legb = [(h[0], band0), (h[1], band1)], [l[0], l[1]]
+    for ax, leg in zip(axes[0, :], [lega, legb]):
+        ax.legend(*leg, bbox_to_anchor=(0, -0.05), loc='lower left',
+                  columnspacing=0.2,  handlelength=1.5, handletextpad=0.4,
+                  fontsize=textiny, labelspacing=0.4)
+
+    plt.xlim(0.0, 2.4)
+    plt.xticks([0, 1, 2])
+    plt.ylim(0.75, 1.05)
+    plt.yticks([0.8, 0.9, 1])
+    finish(h_pad=1, rect=(0, 0, 1, 0.98))
+
+
+def Integrated_flow(x2, x3, w):
+    m2 = np.average(x2, weights=w, axis=0)
+    m3 = np.average(x3, weights=w, axis=0)
+    N = np.sum(w, axis=0)**2/np.sum(w**2, axis=0)
+    var2 = np.average((x2-m2)**2, weights=w**2, axis=0)/(N - 1.0)
+    var3 = np.average((x3-m3)**2, weights=w**2, axis=0)/(N - 1.0)
+    flow2_mean = m2**0.5
+    flow2_err = 0.5*(var2/m2)**0.5
+    flow3_mean = m3**0.5
+    flow3_err = 0.5*(var3/m3)**0.5
+
+    return flow2_mean, flow2_err, flow3_mean, flow3_err
+
+
+@plot
+def vn_cen():
+    # figure properties
+    plt.figure(figsize=(columnwidth, 0.8*columnwidth))
+    gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1.2])
+    ax0, ax1 = plt.subplot(gs[0]), plt.subplot(gs[1])
+
+    # load calculation and calculate v2, v3
+    f = [h5py.File(fi) for fi in glob.glob("data/vn-cen/*.hdf5")]
+    c22 = np.concatenate([fi['C22'].value for fi in f])
+    c32 = np.concatenate([fi['C32'].value for fi in f])
+    mult = np.concatenate([fi['Mult'].value for fi in f])
+    weight = np.concatenate([fi['Weight'].value for fi in f])
+
+    # sort events according to multiplicity
+    ordered = mult.argsort()[::-1]
+    mult = mult[ordered]
+    c22 = c22[ordered]
+    c32 = c32[ordered]
+    weight = weight[ordered]
+
+    # centrality binning
+    index = lambda x: int(len(mult)*x/100.)
+    cen_bins = np.array([0, 5, 10, 20, 30, 40, 50, 60, 70, 80])
+    cen_lo, cen_hi = cen_bins[:-1], cen_bins[1:]
+    cen = (cen_lo + cen_hi)/2.
+
+    # calculate correlation coefficients
+    result = np.array(
+        [Integrated_flow(c22[index(clo):index(chi)],
+                         c32[index(clo):index(chi)],
+                         weight[index(clo):index(chi)])
+         for (clo, chi) in zip(cen_lo, cen_hi)]
+    )
+    vn_model, vn_err_model = [[result[:, 0], result[:, 2]],
+                              [result[:, 1], result[:, 3]]]
+
+    # load experimental data
+    files = np.sort(glob.glob('data/vn-cen/alice-v*'))
+    cen_alice = [np.loadtxt(f, usecols=(0,)) for f in files]
+    vn_alice = [np.loadtxt(f, usecols=(3,)) for f in files]
+    stat_alice = [np.loadtxt(f, usecols=(4,)) for f in files]
+    sys_alice = [np.loadtxt(f, usecols=(6,)) for f in files]
+
+    # plot experimental data
+    symbols = 'o', 'D'
+    files = np.sort(glob.glob('data/vn2-cen/alice-v*'))
+    labels = r'$v_2$', r'$v_3$'
+
+    for cen_exp, vn_exp, stat_exp, sys_exp, symbol, label in \
+            zip(cen_alice, vn_alice, stat_alice, sys_alice, symbols, labels):
+        ax0.errorbar(cen_exp, vn_exp, yerr=stat_exp, fmt=symbol,
+                     color=offblack, mew=0, capsize=0)
+        [ax0.fill_between([x0, x1], [y0, y0], [y1, y1], color=gray, lw=0,
+                          zorder=1)
+         for (x0, x1, y0, y1) in zip(cen_exp-1, cen_exp+1,
+                                     vn_exp-sys_exp, vn_exp+sys_exp)]
+        ax0.annotate(label, xy=(cen_exp[-1] + 3, vn_exp[-1]), xycoords='data',
+                     ha='left', va='center')
+
+    # plot model data
+    colors = cv2, cv3
+    for cen_exp, vn, vn_err, color in \
+            zip(cen_alice, vn_model, vn_err_model, colors):
+        m = int(len(cen_exp))
+        ax0.plot(cen[:m], vn[:m], c=color, zorder=0)
+        ax0.fill_between(cen[:m], vn[:m] - 2*vn_err[:m], vn[:m] + 2*vn_err[:m],
+                         color=color, alpha=0.3, lw=0, zorder=0)
+    # ratio plot
+    ax1.axhspan(0.9, 1.1, color='0.92', lw=0, zorder=0)
+    for cen_exp, vn_exp, vn, color in \
+            zip(cen_alice, vn_alice, vn_model, colors):
+        m = int(len(cen_exp))
+        ax1.errorbar(cen_exp, vn[:m]/vn_exp, color=color)
+
+    # figure properties
+    ax0.axis([0, 82, 0, 0.11])
+    ax0.set_ylabel(r"$v_n\{2\}$")
+    ax0.set_xticklabels([])
+
+    ax0.annotate('\n'.join(('ALICE Pb+Pb', '$\sqrt{s_\mathrm{NN}}=2.76$ TeV',
+                           '$0.2 < p_T < 5$ GeV, $|\eta| < 0.8$')),
+                 xy=(1, 0.05),
+                 xycoords='axes fraction', ha='right', va='bottom',
+                 multialignment='right', fontsize=textiny)
+    ax1.axhline(y=1, color='0.5', lw=0.6, zorder=0)
+    ax1.axis([0, 76, 0.8, 1.20])
+    ax1.set_yticks([0.8, 1, 1.2])
+    ax1.set_xlabel("Centrality %")
+    ax1.set_ylabel(r"Calc./Exp.")
+
+    finish()
+
+
+@plot
+def vn_eta():
+    fig, axes = plt.subplots(nrows=3, ncols=3, sharex=True, sharey=True,
+                             figsize=(0.58*textwidth, 0.5*textwidth))
+
+    # load model calculations
+    f = [h5py.File(f) for f in glob.glob('data/vn-eta/*.hdf5')]
+    N = len(f)
+
+    # calculating diff flow:
+    # x1 is a list of two particle correlation between POI
+    # and ref-particles: cn2'
+    # w1 is the corresponding weight of the cn2'
+    # x2 is a list of two particle correlation og ref-particles: cn2
+    # w2 is the corresponding weight of the cn2
+    # The different flow is vn = <cn2'>/<cn2>^0.5
+    # The variance of the diff flow vn can be expressed in terms of
+    # var of <cn2>, <cn2'> and covar of <cn2> and <cn2'>
+    # var{vn} = 1.0/<cn2>*var{<cn2'>} + 0.25*<cn2'>/<cn2>^3*var{<cn2>}
+    # - <cn2'>/<cn2>^2*cov{<cn2>, <cn2'>}
+    # error = var{vn}^0.5
+    def diff_flow(x1, w1, x2, w2):
+        dim_extend = np.ones_like(x1[0])
+        x2 = np.outer(x2, dim_extend)
+        w2 = np.outer(w2, dim_extend)
+        m1 = np.average(x1, weights=w1, axis=0)
+        m2 = np.average(x2, weights=w2, axis=0)
+        N1 = np.sum(w1, axis=0)**2/np.sum(w1**2, axis=0)
+        N2 = np.sum(w2, axis=0)**2/np.sum(w2**2, axis=0)
+        N12 = np.sum(w1, axis=0)*np.sum(w2, axis=0)/np.sum(w1*w2, axis=0)
+        var1 = np.average((x1-m1)**2, weights=w1**2, axis=0)/(N1 - 1.0)
+        var2 = np.average((x2-m2)**2, weights=w2**2, axis=0)/(N2 - 1.0)
+        cov12 = np.average((x1-m1)*(x2-m2), weights=w1*w2, axis=0)/(N12 - 1.0)
+        flow_mean = m1/m2**0.5
+        flow_err = (var1/m2 + 0.25*var2*m1**2/m2**3 - cov12*m1/m2**2)**0.5
+        return flow_mean, flow_err
+
+    mult = np.concatenate([fi['Mult'].value for fi in f], axis=0)
+    c22 = np.concatenate([fi['C22'].value for fi in f], axis=0)
+    c32 = np.concatenate([fi['C32'].value for fi in f], axis=0)
+    weight = np.concatenate([fi['Weight'].value for fi in f], axis=0)
+    c22_ref_L = np.concatenate([fi['C22_ref_L'].value for fi in f], axis=0)
+    c32_ref_L = np.concatenate([fi['C32_ref_L'].value for fi in f], axis=0)
+    w_ref_L = np.concatenate([fi['W_ref_L'].value for fi in f], axis=0)
+    c22_ref_R = np.concatenate([fi['C22_ref_R'].value for fi in f], axis=0)
+    c32_ref_R = np.concatenate([fi['C32_ref_R'].value for fi in f], axis=0)
+    w_ref_R = np.concatenate([fi['W_ref_R'].value for fi in f], axis=0)
+
+    index = mult.argsort()[::-1]
+    mult = mult[index]
+    c22 = c22[index]
+    c32 = c32[index]
+    weight = weight[index]
+    c22_ref_L = c22_ref_L[index]
+    c32_ref_L = c32_ref_L[index]
+    w_ref_L = w_ref_L[index]
+    c22_ref_R = c22_ref_R[index]
+    c32_ref_R = c32_ref_R[index]
+    w_ref_R = w_ref_R[index]
+
+    N, Nbins = c22.shape
+    cen = np.array([0.0, 5, 10, 20, 30, 40, 50, 60, 70, 80])
+    Ncen = (cen/100.*N).astype(int)
+    Nc = len(cen) - 1
+    v2 = np.zeros([Nc, Nbins])
+    v3 = np.zeros([Nc, Nbins])
+    v2err = np.zeros([Nc, Nbins])
+    v3err = np.zeros([Nc, Nbins])
+
+    for c in range(Nc):
+        # correlate left (eta<0) particles with right (eta>0) reference flow
+        ncl, nch = Ncen[c], Ncen[c+1]
+        v2L, v2L_err = \
+            diff_flow(c22[ncl:nch, :int(Nbins/2)], weight[ncl:nch, :int(Nbins/2)],
+                      c22_ref_R[ncl:nch], w_ref_R[ncl:nch])
+        v2R, v2R_err = \
+            diff_flow(c22[ncl:nch, int(Nbins/2):], weight[ncl:nch, int(Nbins/2):],
+                      c22_ref_L[ncl:nch], w_ref_L[ncl:nch])
+        # correlate right (eta>0) particles with left (eta<0) reference flow
+        v3L, v3L_err = \
+            diff_flow(c32[ncl:nch, :int(Nbins/2)], weight[ncl:nch, :int(Nbins/2)],
+                      c32_ref_R[ncl:nch], w_ref_R[ncl:nch])
+        v3R, v3R_err = \
+            diff_flow(c32[ncl:nch, int(Nbins/2):], weight[ncl:nch, int(Nbins/2):],
+                      c32_ref_L[ncl:nch], w_ref_L[ncl:nch])
+        # concatenate left and right flow
+        v2[c] = np.concatenate([v2L, v2R])
+        v3[c] = np.concatenate([v3L, v3R])
+        v2err[c] = np.concatenate([v2L_err, v2R_err])
+        v3err[c] = np.concatenate([v3L_err, v3R_err])
+    # symmetrize the flow vector (System is z-reflect invariant, don't in)
+    v2 = (v2 + v2[:, ::-1])*0.5
+    v3 = (v3 + v3[:, ::-1])*0.5
+
+    # experimental data
+    exp_cen = [np.loadtxt(f, usecols=(0, 1, 2, 3, 4, 5, 6)) for f in
+               np.sort(glob.glob('data/vn-eta/alice-vn-eta/*.dat'))]
+    for i, (ax, exp) in enumerate(zip(axes.flat, exp_cen)):
+        [eta, v2_exp, dv2_exp_stat, dv2_exp_sys,
+         v3_exp, dv3_exp_stat, dv3_exp_sys] = exp.T
+        eta_ = list(chain(*zip(eta - 0.25, eta + 0.25)))
+        band = patches.Patch(color=gray, lw=0, zorder=2)
+
+        v2_lo = list(chain(*zip(v2_exp - dv2_exp_sys, v2_exp - dv2_exp_sys)))
+        v2_hi = list(chain(*zip(v2_exp + dv2_exp_sys, v2_exp + dv2_exp_sys)))
+        ax.fill_between(eta_, v2_lo, v2_hi, color=gray, lw=0)
+        ax.errorbar(eta, v2_exp, yerr=dv2_exp_stat, fmt='o', c=offblack, mew=0,
+                    capsize=0, label=r'ALICE $v_2\{2\}$', zorder=2)
+
+        v3_lo = list(chain(*zip(v3_exp - dv3_exp_sys, v3_exp - dv3_exp_sys)))
+        v3_hi = list(chain(*zip(v3_exp + dv3_exp_sys, v3_exp + dv3_exp_sys)))
+        ax.fill_between(eta_, v3_lo, v3_hi, color=gray, lw=0)
+        ax.errorbar(eta, v3_exp, yerr=dv3_exp_stat, fmt='D', c=offblack,
+                    ms=2.7, mew=0, capsize=0, label=r'ALICE $v_3\{2\}$',
+                    zorder=2)
+
+    eta_bins = np.linspace(-5, 5, 21)
+    eta = 0.5*(eta_bins[:-1] + eta_bins[1:])
+
+    b1 = patches.Patch(color=cv2, alpha=0.35, lw=0, zorder=2)
+    b2 = patches.Patch(color=cv3, alpha=0.35, lw=0, zorder=2)
+
+    for i, ax in enumerate(axes.flat):
+        eta_ = list(chain(*zip(eta_bins[:-1], eta_bins[1:])))
+
+        v2_ = list(chain(*zip(v2[i], v2[i])))
+        v2_hi = list(chain(*zip(v2[i] + 2*v2err[i], v2[i] + 2*v2err[i])))
+        v2_lo = list(chain(*zip(v2[i] - 2*v2err[i], v2[i] - 2*v2err[i])))
+        ax.plot(eta_, v2_, color=cv2, label=r'Hybrid $v_2\{2\}$', zorder=2)
+        ax.fill_between(eta_, v2_lo, v2_hi, color=cv2, alpha=0.4, lw=0,
+                        zorder=2)
+
+        v3_ = list(chain(*zip(v3[i], v3[i])))
+        v3_hi = list(chain(*zip(v3[i] + 2*v3err[i], v3[i] + 2*v3err[i])))
+        v3_lo = list(chain(*zip(v3[i] - 2*v3err[i], v3[i] - 2*v3err[i])))
+        ax.plot(eta_, v3_, color=cv3, label=r'Hybrid $v_3\{2\}$', zorder=2)
+        ax.fill_between(eta_, v3_lo, v3_hi, color=cv3, alpha=0.3,  lw=0,
+                        zorder=2)
+
+        if ax.is_first_col():
+            ax.set_ylabel(r"$v_n\{2\}$")
+            ax.set_yticks(np.linspace(0, 0.08, 3))
+        if ax.is_last_row():
+            ax.set_xlabel(r"$\eta$")
+            ax.set_xticks(np.linspace(-3, 3, 3))
+        ax.set_xlim(-5, 5)
+        ax.set_ylim(0, 0.1)
+        ax.annotate('%d–%d%%' % (cen[i], cen[i+1]), xy=(0.5, 1),
+                    xycoords='axes fraction', ha='center', va='center',
+                    clip_on=False)
+
+    h, l = axes[0, 0].get_legend_handles_labels()
+    lega = [(band, h[2]), (band, h[3])], l[2:]
+    legb = [(h[0], b1), (h[1], b2)], l[:2]
+    for ax, leg in zip(axes[0, :], [lega, legb]):
+        ax.legend(*leg, bbox_to_anchor=(0.5, 0.95), fontsize=textiny,
+                  loc='upper center', handlelength=1.5, labelspacing=0.2,
+                  handletextpad=0.4)
+
+    finish(h_pad=0.5, w_pad=0, rect=(0, 0, 1, 0.98))
+
+
+def cov(X, Y, Wx, Wy):
+    x = np.average(X, weights=Wx)
+    y = np.average(Y, weights=Wy)
+    Neffx = np.sum(Wx)**2/np.sum(Wx**2)
+    Neffy = np.sum(Wy)**2/np.sum(Wy**2)
+    Neffxy = np.sum(Wy)*np.sum(Wx)/np.sum(Wy*Wx)
+    covx = np.average((X-x)**2, weights=Wx**2)/(Neffx-1)
+    covy = np.average((Y-y)**2, weights=Wy**2)/(Neffy-1)
+    covxy = np.average((X-x)*(Y-y), weights=Wx*Wy)/(Neffxy-1)
+    return x, y, covx, covy, covxy
+
+
+def calculate_smn(data):
+    names = glob.glob("data/Smn/%sSmn-*" % data)
+    f = [h5py.File(name) for name in names]
+    M = np.concatenate([fi['M'].value for fi in f], axis=0)
+    W4 = np.concatenate([fi['W4'].value for fi in f], axis=0)
+    W2 = np.concatenate([fi['W2'].value for fi in f], axis=0)
+    C42 = np.concatenate([fi['C42'].value for fi in f], axis=0)
+    C32 = np.concatenate([fi['C32'].value for fi in f], axis=0)
+    C4 = np.concatenate([fi['C4'].value for fi in f], axis=0)
+    C3 = np.concatenate([fi['C3'].value for fi in f], axis=0)
+    C2 = np.concatenate([fi['C2'].value for fi in f], axis=0)
+
+    N = len(C42)
+    cen = np.array([0.0, 5, 10, 20, 30, 40, 50, 60, 70])
+    cen_M = (cen[1:] + cen[:-1])*0.5
+    Ncen = (cen/100.*N).astype(int)
+    # sort events according to centralities
+    index = M.argsort()[::-1]
+    M = M[index]
+    W4 = W4[index]
+    W2 = W2[index]
+    C42 = C42[index]
+    C32 = C32[index]
+    C4 = C4[index]
+    C3 = C3[index]
+    C2 = C2[index]
+
+    s42 = []
+    s32 = []
+    e42 = []
+    e32 = []
+    ns42 = []
+    ns32 = []
+    ens42 = []
+    ens32 = []
+    for i in range(len(cen)-1):
+        NL = Ncen[i]
+        NH = Ncen[i+1]
+        c42, c2, cov42, cov2, cov42_2 = cov(C42[NL:NH], C2[NL:NH],
+                                            W4[NL:NH], W2[NL:NH])
+        c42, c4, cov42, cov4, cov42_4 = cov(C42[NL:NH], C4[NL:NH],
+                                            W4[NL:NH], W2[NL:NH])
+        c4, c2, cov4, cov2, cov4_2 = cov(C4[NL:NH], C2[NL:NH],
+                                         W2[NL:NH], W2[NL:NH])
+        e42.append((cov42 + c2**2*cov4 + c4**2*cov2 - 2*c2*cov42_4
+                    - 2*c4*cov42_2 + 2*c2*c4*cov4_2)**0.5)
+        s42.append(c42-c4*c2)
+        ns42.append(c42/c4/c2-1)
+        ens42.append(
+        ( (1./c4/c2)**2*cov42 + (c42/c4**2/c2)**2*cov4 
+        + (c42/c4/c2**2)**2*cov2 - 2.*c42/c4**3/c2**2*cov42_4
+        - 2.*c42/c4**2/c2**3*cov42_2 + 2.*c42**2/c4**3/c2**3*cov4_2
+        )**0.5         
+        )
+ 
+        c32, c2, cov32, cov2, cov32_2 = cov(C32[NL:NH], C2[NL:NH],
+                                            W4[NL:NH], W2[NL:NH])
+        c32, c3, cov32, cov3, cov32_3 = cov(C32[NL:NH], C3[NL:NH],
+                                            W4[NL:NH], W2[NL:NH])
+        c3, c2, cov3, cov2, cov3_2 = cov(C3[NL:NH], C2[NL:NH],
+                                         W2[NL:NH], W2[NL:NH])
+        e32.append((cov32 + c2**2*cov3 + c3**2*cov2 - 2*c2*cov32_3
+                    - 2*c3*cov32_2 + 2*c2*c3*cov3_2)**0.5)
+        s32.append(c32-c3*c2)
+        ns32.append(c32/c3/c2-1)
+        ens32.append(
+        ( (1./c3/c2)**2*cov32 + (c32/c3**2/c2)**2*cov3 
+        + (c32/c3/c2**2)**2*cov2 - 2.*c32/c3**3/c2**2*cov32_3
+        - 2.*c32/c3**2/c2**3*cov32_2 + 2.*c32**2/c3**3/c2**3*cov3_2
+        )**0.5         
+           )
+    s42 = np.array(s42)
+    s32 = np.array(s32)
+    e42 = np.array(e42)
+    e32 = np.array(e32)
+    ns42 = np.array(ns42)
+    ns32 = np.array(ns32)
+    ens42 = np.array(ens42)
+    ens32 = np.array(ens32)
+    return [cen_M, s42, s32, e42, e32, ns42[:-1], ns32[:-1],
+            ens42[:-1], ens32[:-1]]
+
+
+@plot
+def smn():
+    plt.figure(figsize=(columnwidth, 1.2*columnwidth))
+    gs = gridspec.GridSpec(2, 1, height_ratios=[3, 3])
+    ax1, ax2 = plt.subplot(gs[0]), plt.subplot(gs[1])
+    c42a, c42b = plt.cm.PuBu([0.75, 0.5])
+    c32a, c32b = plt.cm.YlGn([0.75, 0.5])
+
+    exp = np.loadtxt("data/Smn/exp.dat").T
+    xexp = exp[0]
+    y32exp = exp[3]
+    e32exp_bar = exp[4]
+    e32exp_box = exp[6]
+    y42exp = exp[8]
+    e42exp_bar = exp[9]
+    e42exp_box = exp[11]
+
+    cen_M, s42, s32, e42, e32, ns42, ns32, ens42, ens32 = calculate_smn('')
+    cen_M, s42f, s32f, e42f, e32f, ns42f, ns32f, ens42f, ens32f = \
+        calculate_smn('*ward-')
+
+    # SC(m, n) |\eta| < 0.8
+    ax1.plot(cen_M, s42, color=c42a, label='Hybrid, $|\eta|<0.8$', zorder=1)
+    ax1.plot(cen_M, s32, color=c32a, label='Hybrid, $|\eta|<0.8$', zorder=1)
+    ax1.fill_between(cen_M, s42-e42, s42+e42, color=c42a, lw=0, alpha=0.4,
+                     zorder=1)
+    ax1.fill_between(cen_M, s32-e32, s32+e32, color=c32a, lw=0, alpha=0.4,
+                     zorder=1)
+
+    # SC(m, n) 2.5 < |\eta| < 3.5
+    ax1.plot(cen_M, s42f, dashes=(4, 1), color=c42b,
+             label='Hybrid, $2.5<|\eta|<3.5$', zorder=0)
+    ax1.plot(cen_M, s32f, dashes=(4, 1), color=c32b,
+             label='Hybrid, $2.5<|\eta|<3.5$', zorder=0)
+    ax1.fill_between(cen_M, s42f-e42f, s42f+e42f, color=c42b, lw=0, alpha=0.4,
+                     zorder=0)
+    ax1.fill_between(cen_M, s32f-e32f, s32f+e32f, color=c32b, lw=0, alpha=0.4,
+                     zorder=0)
+
+    # ALICE SC(m, n) |\eta| < 0.8
+    ax1.errorbar(xexp, y42exp, [e42exp_bar, e42exp_bar], fmt='o', c=offblack,
+                 capsize=0, mew=0, label="ALICE $(m,n)=(4,2)$", zorder=3)
+    ax1.errorbar(xexp, y32exp, [e32exp_bar, e32exp_bar], fmt='D', c=offblack,
+                 capsize=0, mew=0, label="ALICE $(m,n)=(3,2)$", zorder=3)
+
+    for i in range(len(xexp)):
+        x = [xexp[i]-1, xexp[i]+1]
+        yl = [y42exp[i]-e42exp_box[i], y42exp[i]-e42exp_box[i]]
+        yh = [y42exp[i]+e42exp_box[i], y42exp[i]+e42exp_box[i]]
+        ax1.fill_between(x, yl, yh, color=gray, lw=0, zorder=2)
+
+        x = [xexp[i]-1, xexp[i]+1]
+        yl = [y32exp[i]-e32exp_box[i], y32exp[i]-e32exp_box[i]]
+        yh = [y32exp[i]+e32exp_box[i], y32exp[i]+e32exp_box[i]]
+        ax1.fill_between(x, yl, yh, color=gray, lw=0, zorder=2)
+
+    ax1.set_xlim(0, 66)
+    ax1.set_ylim(-1.5e-6, 3e-6)
+    ax1.set_yticks([-1.0e-6, 0.0e-6, 1.0e-6, 2.0e-6, 3e-6])
+    ax1.set_ylabel(r"$SC(m,n)$")
+    ax1.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+    ax1.set_xticklabels([])
+
+    h, l = ax1.get_legend_handles_labels()
+    leg = [h[4], h[5]], [l[4], l[5]]
+    ax1.legend(*leg, loc=(0.0, 0.6), columnspacing=0.2, handlelength=1.5,
+               handletextpad=0.4, fontsize=textiny, labelspacing=0.4)
+    alice = '\n'.join(['ALICE, Pb+Pb, $\sqrt{s_\mathrm{NN}}=2.76$ TeV',
+                       '$0.2<p_T<5.0$ GeV, $|\eta|<0.8$'])
+    ax1.annotate(alice, xy=(0.04, 0.85), xycoords='axes fraction',
+                 multialignment='left', ha='left', fontsize=textiny)
+
+    # normalized plot
+    exp = np.loadtxt("data/Smn/exp-norm.dat").T
+    xexp = exp[0]
+    y32exp = exp[3]
+    e32exp_bar = exp[4]
+    e32exp_box = exp[6]
+    y42exp = exp[8]
+    e42exp_bar = exp[9]
+    e42exp_box = exp[11]
+
+    # SCN(m, n) |\eta| < 0.8
+    ax2.plot(
+        cen_M[:-1], ns42, color=c42a, label='Hybrid, $|\eta|<0.8$', zorder=1
+    )
+    ax2.plot(
+        cen_M[:-1], ns32, color=c32a, label='Hybrid, $|\eta|< 0.8$', zorder=1
+    )
+    ax2.fill_between(
+        cen_M[:-1], ns42-ens42, ns42+ens42, color=c42a, lw=0, alpha=0.4,
+        zorder=1
+    )
+    ax2.fill_between(
+        cen_M[:-1], ns32-ens32, ns32+ens32, color=c32a, lw=0, alpha=0.4,
+        zorder=1
+    )
+
+    # SCN(m, n) 2.5 < |\eta| < 3.5
+    ax2.plot(
+        cen_M[:-1], ns42f, color=c42b, dashes=(4, 1),
+        label='Hybrid, $2.5<|\eta|< 3.5$', zorder=0
+    )
+    ax2.plot(
+        cen_M[:-1], ns32f, color=c32b, dashes=(4, 1),
+        label='Hybrid, $2.5 < |\eta| < 3.5$', zorder=0
+    )
+    ax2.fill_between(
+        cen_M[:-1], ns42f-ens42f, ns42f+ens42f, color=c42b,
+        alpha=0.4, lw=0, zorder=0
+    )
+    ax2.fill_between(
+        cen_M[:-1], ns32f-ens32f, ns32f+ens32f, color=c32b,
+        alpha=0.4, lw=0, zorder=0
+    )
+
+    # ALICE SCN(m, n) |\eta| < 0.8
+    ax2.errorbar(
+        xexp, y42exp, [e42exp_bar, e42exp_bar], fmt='o', mew=0, capsize=0, c=offblack,
+        label=r"ALICE $SC(4,2)/\langle v_4^2\rangle\langle v_2^2\rangle$",
+        zorder=3
+    )
+    ax2.errorbar(
+        xexp, y32exp, [e32exp_bar, e32exp_bar], fmt='D', mew=0, capsize=0, c=offblack,
+        label=r"ALICE $SC(3,2)/\langle v_3^2\rangle\langle v_2^2\rangle$",
+        zorder=3
+    )
+
+    for i in range(len(xexp)):
+        x = [xexp[i]-1, xexp[i]+1]
+        yl = [y42exp[i]-e42exp_box[i], y42exp[i]-e42exp_box[i]]
+        yh = [y42exp[i]+e42exp_box[i], y42exp[i]+e42exp_box[i]]
+        ax2.fill_between(x, yl, yh, color=gray, lw=0, zorder=2)
+
+        x = [xexp[i]-1, xexp[i]+1]
+        yl = [y32exp[i]-e32exp_box[i], y32exp[i]-e32exp_box[i]]
+        yh = [y32exp[i]+e32exp_box[i], y32exp[i]+e32exp_box[i]]
+        ax2.fill_between(x, yl, yh, color=gray, lw=0, zorder=2)
+
+    ax2.set_xlim(0, 66)
+    ax2.set_ylim(-0.3, 1.2)
+    ax2.set_yticks([-0.3, 0.0, 0.5, 1.0])
+    ax2.set_xlabel("Centrality %")
+    ax2.set_ylabel(r"$SC(m,n)/\langle v_m^2\rangle\langle v_n^2\rangle$")
+
+    colors = [c42a, c32a, c42b, c32b]
+    band0, band1, band2, band3 = [
+        patches.Patch(color=c, alpha=0.4, lw=0, zorder=2) for c in colors
+    ]
+
+    h, l = ax2.get_legend_handles_labels()
+    leg = [[(h[0], band0), (h[2], band2), (h[1], band1), (h[3], band3)],
+           [l[0], l[2], l[1], l[3]]]
+    ax2.legend(*leg, loc=(0.02, 0.6), columnspacing=0.2,  handlelength=1.5,
+               handletextpad=0.4, fontsize=textiny, labelspacing=0.4)
+
+    finish(h_pad=0.5, w_pad=0, rect=(0, 0, 1, 0.98))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('plots', nargs='*')
+    args = parser.parse_args()
+
+    if args.plots:
+        for i in args.plots:
+            if i.endswith('.pdf'):
+                i = i[:-4]
+            if i in plot_functions:
+                plot_functions[i]()
+            else:
+                print('unknown plot:', i)
+    else:
+        for f in plot_functions.values():
+            f()
+
+
+if __name__ == "__main__":
+    main()
