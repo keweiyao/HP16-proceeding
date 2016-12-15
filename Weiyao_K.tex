@@ -154,7 +154,7 @@
 \dochead{}
 %% Use \dochead if there is an article header, e.g. \dochead{Short communication}
 
-\title{Constaints on rapidity-dependent initial conditions from particle charged particle pseudorapidity densities and correlations at LHC}
+\title{Constaints on rapidity-dependent initial conditions from charged particle pseudorapidity densities and correlations at LHC}
 
 %% use optional labels to link authors explicitly to addresses:
 %% \author[label1,label2]{<author name>}
@@ -169,11 +169,11 @@
 \address{Department of Physics, Duke University, Durham, NC 27708-0305, United States}
 
 \begin{abstract}
-The initial three-dimensional entropy distribution of the quark-gluon plasma produced in relativistic heavy-ion collision is systematically studied using a parametric initial condition.
+The initial three-dimensional entropy distribution of the quark-gluon plasma produced in relativistic heavy-ion collision is systematically studied using parametric initial conditions.
 We apply a cumulant generating function approach to parametrize the rapidity dependence of local entropy deposition and extend the boost-invariant initial condition model \trento~to include longitudinal structure.
 Two different parametrizations are tested and their parameters optimized by comparing to centrality dependent charged particle pseudorapidity densities of p+Pb (5.02A TeV) and Pb+Pb (2.76A TeV) using Bayesian inference.
 Successful parametrizations are then selected based on their ability to describe two-particle psuedorapidity correlations.
-Finally, we predict the pseudorapidity dependent flows and event-plane decorrelations using this optimized initial condition and a 3+1D hybrid hydro+micro model.
+Finally, we predict the pseudorapidity dependent flows and event-plane decorrelations using the optimized initial conditions and a 3+1D hybrid hydro+micro model.
 
 \end{abstract}
 
@@ -197,23 +197,23 @@ initial condition \sep charged particle density \sep two-particle correlation
 \section{Introduction}
 \label{Introduction}
 Ultra-relativistic heavy-ion collisions produce a strongly coupled quark-gluon plasma (sQGP) whose dynamics are well described by models based on hydrodynamics.
-A prerequisite for hydrodynamic modelign and also a major source of uncertainty is the knowledge of initial condition which specifies the initial spatial entropy / energy distribution at the starting time of the hydrodynamic evolution.
+A prerequisite for hydrodynamic modeling and also a major source of uncertainty is the knowledge of the initial conditions which specifies the initial spatial entropy / energy distribution at the starting time of the hydrodynamic evolution.
 Most current initial condition models assume longitudinal boost-invariance \cite{Miller:2007ri, Drescher:2006ca, Schenke:2012wb, Niemi:2015qia, Moreland:2014oya}.
 However, this assumption is explicitly broken in asymmetric collision systems such as p+Pb.
 Even in Pb+Pb collision, nucleon position fluctuations could introduce an intricate local longitudinal dependence, which can affect observable quantities as well as correlations between hard probes and soft particles.
 
 Previous approaches for the development of the three-dimensional initial conditions utilized a number of different physical pictures, from MC Glauber extensions \cite{Bozek:2015bha}, minijet production and string formation \cite{Wang:1991hta} to most recently CGC effective field theory \cite{Schenke:2016ksl}.
-In this work, we use a parametric initial condition which encodes different types of longitudinal entropy deposition schemes with tunable parameters.
-Although our approach does not rely on a specific physical mechanism, the true value of a parametric model is its capability of generating initial condition compatible with experimental data and thus providing guidance to the different physical approaches of initial conditions.
+In this work, we use a parametric initial condition model which encodes different types of longitudinal entropy deposition schemes with tunable parameters.
+Although our approach does not rely on a specific physical mechanism, the true value of a parametric model is the ability to generate initial conditions which are compatible with experimental data and thus provide guidance to the different physical descriptions of initial particle production.
 
 \section{Initial Condition Model}
 \label{Model}
 We extend the boost-invariant parametric initial condition model \trento~\cite{Moreland:2014oya} by introducing a local longitudinal structure based on a cumulant generating function approach.
 The physics of \trento~is described in detail in reference \cite{Moreland:2014oya}. The main feature of the model is that it maps the nuclear participant densities $T_A(\vec{x}_{\perp})$ and $T_B(\vec{x}_{\perp})$ to a mid-rapidity entropy deposition in a flexible way controlled by a continuous parameter $p$.
-Using Bayesian techniques, it has been shown that the calibrated initial condition together with the state-of-the-art dynamic modeling can explain annisotropic flows, particle yields and mean transverse momentum at mid-rapidity to an unprecedented level of accuracy \cite{Bernhard:2016tnd}, validating the effectiveness of \trento~at mid-rapidity.
+Using Bayesian techniques, it has been shown that calibrated initial conditions together with the state-of-the-art dynamic modeling can explain annisotropic flows, particle yields and mean transverse momentum at mid-rapidity to an unprecedented level of accuracy \cite{Bernhard:2016tnd}, validating the effectiveness of \trento~at mid-rapidity.
 
 The three dimensional extension proceed as  follows: 
-Assuming that the longitudinal asymmetry of local entropy deposition is triggered by the imbalance between local projectile and target, we parametrize the fist three rapidity-cumulants, namely the mean ($\mu$), the standard deviation ($\sigma$) and the skewness ($\gamma$) of the local entropy distribution as functions of $T_A(\vec{x}_{\perp})$ and $T_B(\vec{x}_{\perp})$,
+Assuming that the longitudinal asymmetry of local entropy deposition tracks the local asymmetry of projectile and target density, we parametrize the fist three rapidity-cumulants, namely the mean ($\mu$), the standard deviation ($\sigma$) and the skewness ($\gamma$) of the local entropy distribution as functions of $T_A(\vec{x}_{\perp})$ and $T_B(\vec{x}_{\perp})$,
 \begin{eqnarray}
 \frac{ds(\vec{x}_{\perp}, \eta_s)}{dx_{\perp}^2 d\eta_s} \propto f(\vec{x}_{\perp})g(y; \mu(\vec{x}_{\perp}), \sigma(\vec{x}_{\perp}), \gamma(\vec{x}_{\perp}))\frac{dy}{d\eta}.
 \end{eqnarray}
@@ -273,16 +273,16 @@ The 3D extension introduces four more parameters to the model:
 \includegraphics[scale=0.86]{fw_correlation_a1.pdf}
 \caption{
 	\label{fig:calibrate}
-	Left: calibrated initial conditon models' mean prediction of $dN_{ch}/d\eta$ with uncertainty compared to ALICE (Pb+Pb) and ATLAS (p+Pb) data. Right: calibrated initial condition and hybrid model calculation ($\eta/s=0.2, \zeta/s=0$) of $\langle a_1^2\rangle^{1/2}$ compared to ATLAS data.
+	Left: calibrated initial conditon models' mean prediction of $dN_{ch}/d\eta$ with uncertainty compared to ALICE (Pb+Pb) and ATLAS (p+Pb) data. Right: calibrated initial condition and hybrid model calculations ($\eta/s=0.2, \zeta/s=0$) of $\langle a_1^2\rangle^{1/2}$ compared to ATLAS data.
 	}
 \end{figure*}
 \end{center}
 To globally tune all parameters, we perform a Bayesian model-to-data comparison as described by \cite{Bernhard:2015hxa}.
-Since the 3+1D hydrodynamic simulation is computationally expensive, we directly compare the initial condition calculation  to the charged particle densities assuming,
+Since the 3+1D hydrodynamic simulation is computationally expensive, we directly compare the initial condition calculation to the charged particle densities assuming,
 \begin{eqnarray}
 \frac{ds}{d\eta_s} \sim \frac{dN_{ch}}{d\eta}.
 \end{eqnarray}
-Using Latin-hypercube sampling, we randomly sample 200 design parameter points from uniform distributions  over a reasonable range of the nine-dimensional parameter space. Then $\mathcal{O}(10^4)$ initial condition events are generated for each design point and calculate $dN_{ch}/d\eta$.
+Using Latin-hypercube sampling, we randomly sample 200 design parameter points from uniform distributions over a reasonable range of the nine-dimensional parameter space. Then $\mathcal{O}(10^4)$ initial condition events are generated for each design point and calculate $dN_{ch}/d\eta$.
 We train Gaussian emulators to interpolate between these design pointers and predict the outcomes at new parameters points.
 The nine-dimensional posterior probability distribution of model parameters after comparing to experimental data can be calculated from Bayes theorem and explored via Markov Chain Monte Carlo (MCMC).
 
@@ -309,21 +309,21 @@ One finds that although the absolute-skew model describes high-multiplicity p+Pb
 On the other hand the relative-skew model agrees with $dN_{ch}/d\eta$ data within $10\%$ and also describes the $\langle a_1^2\rangle^{1/2}$ upto $50\%$ centrality.
 Therefore, we conclude that the relative-skew model is a better parametrization of the initial 3D entropy deposition. 
 
-To further validate the calibrated relative-skew model, we use it to predict  pseudorapidty-dependent flow and event-plane decorrelations.
+To further validate the calibrated relative-skew model, we use it to predict pseudorapidty-dependent flow and event-plane decorrelations.
 The left panel of figure \ref{fig:eta-obs}~shows the comparison of $v_2(\eta)$ and $v_3(\eta)$ to the recent ALICE measurement \cite{Adam:2016ows} at various centralities. We find generally good agreement with the data.
 Note that the ALICE data is extrapolated to $p_T = 0~\textrm{GeV}$, we therefore used an unusual large $\eta/s=0.3$ in this calculation in order to compensate for the effect from over-predicting $\langle p_T\rangle$ with zero bulk viscosity.
 In the right panel of figure \ref{fig:eta-obs}, the event-plane decorrelations quantified by the factorization ratio $r_2$ and $r_3$ are compared to previous CMS measurements \cite{Khachatryan:2015oea}.
-Again, the relative-skew model combined with a 3+1D hybrid model well describes the data very well for all six centralities.
+Again, the relative-skew model combined with a 3+1D hybrid model describes the data quite well for all six centralities.
 
 \section{Conclusion}
 \label{Conclusion}
 We have extended the parametric boost-invariant initial condition model \trento~to include longitudinal degrees of freedom.
-The mean, standard deviation and skewness of the local rapidity distribution is parametrized as function of nuclear participant densities.
+The mean, standard deviation and skewness of the local rapidity distribution is parametrized as a function of nuclear participant densities.
 Two different parametrizations, namely the relative-skew and absolute-skew model are proposed and calibrated using Bayesian inference with centrality dependent $dN_{ch}/d\eta$ data for both p+Pb and Pb+Pb collision systems.
-The relative-skew model is favored since it can describe both single particle pseudorapidity distribution as well as two-particles pseudorapidity correlations for a wide range of centralities.
-Combing the calibrated relative-skew initial condition and a 3+1D hybrid evolution model, the pseudorapidity dependent flows and event-plant decorrelations in Pb+Pb collision are predicted.
-The fact that the model calibrated on transverse-integrated observables such as $dN_{ch}/d\eta$ and $\langle a_1^2\rangle^{1/2}$ can reproduce the flows and event-plane decorrelations, which are sensitive to the longitudinal evolution of the transverse structure, is a non-trivial result.
-This simple model provides direct feedback for first-principal calculations of QGP initial condition and also benefits event-by-event study of 3+1D dynamics of relativistic heavy-ion collisions. 
+The relative-skew model is favored since it can describe both the single particle pseudorapidity distribution as well as two-particles pseudorapidity correlations for a wide range of centralities.
+Combining the calibrated relative-skew initial conditions and a 3+1D hybrid evolution model, the pseudorapidity dependent flows and event-plant decorrelations in Pb+Pb collision are predicted.
+The model is only calibrated on transverse-integrated observables such as $dN_{ch}/d\eta$ and $\langle a_1^2\rangle^{1/2}$ yet can reproduce the flows and event-plane decorrelations which are sensitive to the longitudinal evolution of the transverse structure.
+This simple model provides direct feedback for first-principal calculations of QGP initial condition and also benefits event-by-event studies of 3+1D dynamics in relativistic heavy-ion collisions. 
 
 Computational resources were provided by the Open Science Grid (OSG), which is supported by the U.S Department of Energy's Office of Science. This work has been supported by the U.S Department of Energy under grant DE-FG02-05ER41367 and the National Science Foundation under grant NSF-ACI-1550225.
 
